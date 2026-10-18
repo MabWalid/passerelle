@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest"><title>Ma carte</title>
+<style>
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:radial-gradient(120% 80% at 50% 0%,#1b2a2a,#0b1010);color:#fff;font:16px/1.4 system-ui,-apple-system,sans-serif;padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 10px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;overflow-x:hidden}
+.w{width:100%;max-width:360px;perspective:1100px}
+.tilt{transform-style:preserve-3d;transition:transform .15s ease-out;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg))}
+.card{position:relative;border-radius:22px;min-height:470px;padding:22px;transition:transform .7s cubic-bezier(.2,.8,.2,1);transform-style:preserve-3d;box-shadow:0 24px 60px rgba(0,0,0,.55);touch-action:pan-y}
+.card.flip{transform:rotateY(180deg)}
+.card.glow{animation:glow 1.4s ease-out}
+@keyframes glow{0%{box-shadow:0 0 0 0 rgba(255,255,255,.9),0 24px 60px rgba(0,0,0,.55)}100%{box-shadow:0 0 0 38px rgba(255,255,255,0),0 24px 60px rgba(0,0,0,.55)}}
+.sheen{position:absolute;inset:0;border-radius:22px;pointer-events:none;background:radial-gradient(circle at var(--mx,30%) var(--my,20%),rgba(255,255,255,.35),transparent 55%);mix-blend-mode:soft-light;backface-visibility:hidden}
+.f,.b{backface-visibility:hidden}
+.b{position:absolute;inset:0;padding:22px;border-radius:22px;transform:rotateY(180deg);background:#fffdf7;color:#222;font:12.5px "Courier New",monospace;overflow:auto}
+.b h3{margin:0 0 8px;font-size:13px;border-bottom:1px dashed #999;padding-bottom:6px}
+.rc{display:flex;justify-content:space-between;border-bottom:1px dashed #bbb;padding:6px 0;animation:in .5s}
+@keyframes in{from{opacity:0;transform:translateY(-8px)}}
+.top{display:flex;justify-content:space-between;font-weight:800;font-size:19px;letter-spacing:-.01em}
+.big{font-size:52px;font-weight:800;margin:26px 0 0;line-height:1;font-variant-numeric:tabular-nums;transition:transform .3s}
+.big.pop{transform:scale(1.12)}
+.sm{opacity:.8;font-size:12px}
+.pg{height:8px;border-radius:9px;background:rgba(255,255,255,.28);margin:16px 0 6px;overflow:hidden}
+.pg i{display:block;height:100%;background:#fff;border-radius:9px;transition:width .9s cubic-bezier(.2,.8,.2,1)}
+.fl{display:flex;justify-content:space-between;margin-top:18px}
+.bc{background:#fff;color:#111;border-radius:12px;padding:12px 10px 6px;margin-top:20px;text-align:center;font:12px monospace}
+.bc svg{width:100%;height:62px;display:block}
+.eco{display:flex;align-items:center;gap:14px;margin-top:16px;padding-top:12px;border-top:1px dashed #999}
+.eco svg{flex:none}
+.btns{display:flex;gap:10px;width:100%;max-width:360px}
+button{flex:1;font:600 15px system-ui;padding:13px;border-radius:14px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}
+button.p{background:#fff;color:#111;border-color:#fff}
+button:focus-visible{outline:2px solid #7ee;outline-offset:2px}
+#ban{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 8px);background:rgba(250,250,250,.97);color:#111;border-radius:18px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.4);transform:translateY(-170%);transition:transform .5s cubic-bezier(.2,.8,.2,1);z-index:9}
+#ban.on{transform:none}#ban b{display:block;font-size:12px;opacity:.6}#ban span{font-size:15px}
+#pres{position:fixed;inset:0;background:#fff;color:#111;display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;z-index:20}
+#pres.on{display:flex}#pres svg{width:100%;max-width:420px;height:150px}#pres b{font:600 22px monospace;letter-spacing:.08em}
+.hint{font-size:13px;opacity:.55;text-align:center}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style></head><body>
+<div id="ban" role="status" aria-live="polite"></div>
+<div class="w"><div class="tilt" id="tilt"><div class="card" id="card"></div></div></div>
+<div class="btns"><button class="p" id="bp">Présenter en caisse</button><button id="bf">Voir mes tickets</button></div>
+<div class="hint" id="h">Inclinez la carte du doigt ✨</div>
+<div id="pres" role="dialog" aria-label="Code-barres plein écran"><div id="pb"></div><b id="pn"></b><span class="hint" style="color:#111">Touchez pour fermer</span></div>
+<script src="barcode.js"></script>
+<script>
+const n=new URLSearchParams(location.search).get("n")||"3012345678905";
+const $=i=>document.getElementById(i),card=$("card");let c,flip=false;
+const e=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function ring(g){const pct=Math.min(1,g/100),C=2*Math.PI*24;
+ return `<svg width="62" height="62" viewBox="0 0 62 62" role="img" aria-label="${g} g de papier évité"><circle cx="31" cy="31" r="24" fill="none" stroke="#ddd" stroke-width="6"/><circle cx="31" cy="31" r="24" fill="none" stroke="#2aa6a0" stroke-width="6" stroke-linecap="round" stroke-dasharray="${C*pct} ${C}" transform="rotate(-90 31 31)"/><text x="31" y="35" text-anchor="middle" font-size="11" font-weight="700" fill="#222">${g} g</text></svg>`}
+function draw(pop){const r=c.reward||{at:1000,label:"Récompense"},cur=c.pts%r.at,rem=r.at-cur,g=c.receipts.length*(c.ecoG||2);
+ card.style.background=`linear-gradient(145deg,${c.col},${c.col}cc)`;card.classList.toggle("flip",flip);
+ card.innerHTML=`<div class="f"><div class="top"><span>${e(c.ens)}</span><span class="sm">Wallet</span></div>
+ <div class="big${pop&&!flip?" pop":""}">${c.pts.toLocaleString("fr-FR")}</div><div class="sm">points de fidélité</div>
+ <div class="pg" role="progressbar" aria-valuenow="${cur}" aria-valuemax="${r.at}"><i style="width:${cur/r.at*100}%"></i></div>
+ <div class="sm">Encore ${rem} pts : ${e(r.label)}</div>
+ <div class="fl"><div><div class="sm">Titulaire</div>${e(c.nom)}</div><div style="text-align:right"><div class="sm">Tickets digitaux</div>${c.receipts.length}</div></div>
+ <div class="bc">${code128(c.num)}${c.num}</div></div>
+ <div class="b"><h3>DERNIERS TICKETS</h3>${c.receipts.map(x=>`<div class="rc"><span>${e(x.date)} ${e(x.magasin)}</span><span>${x.montant.toFixed(2)} €</span></div>`).join("")}
+ <div class="eco">${ring(g)}<span>Papier évité grâce à vos tickets digitaux<br><small>estimation ${c.ecoG||2} g par ticket, objectif 100 g</small></span></div></div><div class="sheen"></div>`;
+ $("bf").textContent=flip?"Voir ma carte":"Voir mes tickets";
+ if(pop)setTimeout(()=>card.querySelector(".big")?.classList.remove("pop"),350)}
+function toast(t){const b=$("ban");b.innerHTML=`<b>${e(c.ens)} · maintenant</b><span>${e(t)}</span>`;b.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>b.classList.remove("on"),4200)}
+$("bf").onclick=()=>{flip=!flip;card.classList.toggle("flip",flip);$("bf").textContent=flip?"Voir ma carte":"Voir mes tickets"};
+$("bp").onclick=()=>{$("pb").innerHTML=code128(c.num);$("pn").textContent=c.num;$("pres").classList.add("on")};
+$("pres").onclick=()=>$("pres").classList.remove("on");
+// inclinaison + reflet au doigt / à la souris
+const t=$("tilt");function mv(ev){const r=t.getBoundingClientRect(),x=(ev.clientX-r.left)/r.width,y=(ev.clientY-r.top)/r.height;
+ t.style.setProperty("--ry",((x-.5)*16)+"deg");t.style.setProperty("--rx",((.5-y)*16)+"deg");card.style.setProperty("--mx",x*100+"%");card.style.setProperty("--my",y*100+"%");
+ card.querySelectorAll(".sheen").forEach(s=>{s.style.setProperty("--mx",x*100+"%");s.style.setProperty("--my",y*100+"%")})}
+card.addEventListener("pointermove",mv);card.addEventListener("pointerleave",()=>{t.style.setProperty("--rx","0deg");t.style.setProperty("--ry","0deg")});
+fetch("/api/cards/"+n).then(r=>r.json()).then(d=>{if(d.error){$("h").textContent=d.error;return}c=d;draw()});
+const es=new EventSource("/api/cards/"+n+"/events");
+es.onmessage=ev=>{const m=JSON.parse(ev.data),before=Math.floor((c.pts)/(c.reward?.at||1e9));c=m.card;const after=Math.floor(c.pts/(c.reward?.at||1e9));
+ draw(true);card.classList.remove("glow");void card.offsetWidth;card.classList.add("glow");navigator.vibrate&&navigator.vibrate([120,60,120]);
+ toast(after>before?`🎉 Récompense débloquée : ${c.reward.label}`:`Nouveau ticket : ${m.receipt.montant.toFixed(2)} € chez ${m.receipt.magasin} (+${m.gain} pts)`)};
+</script></body></html>
