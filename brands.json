@@ -1,0 +1,6 @@
+[
+  { "id": "supermarche", "name": "Super Marché Nord", "color": "#2aa6a0", "ptsPerEuro": 1, "ecoG": 2, "reward": { "at": 150, "label": "15 € offerts" } },
+  { "id": "boulangerie", "name": "Boulangerie du Centre", "color": "#b8651b", "ptsPerEuro": 2, "ecoG": 2, "reward": { "at": 20, "label": "1 viennoiserie offerte" } },
+  { "id": "pharmacie", "name": "Pharmacie Lilloise", "color": "#2f7d4f", "ptsPerEuro": 1, "ecoG": 2, "reward": { "at": 80, "label": "20 % sur un soin" } },
+  { "id": "station", "name": "Station Verte", "color": "#3b5bdb", "ptsPerEuro": 1, "ecoG": 2, "reward": { "at": 10, "label": "Lavage offert" } }
+]
