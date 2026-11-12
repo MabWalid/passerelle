@@ -2,6 +2,7 @@ import express from "express";
 import fs from "node:fs";
 import os from "node:os";
 import { rewardView } from "./lib/reward.js";
+import { openStore, seedIfEmpty } from "./lib/store.js";
 
 const app = express();
 app.use(express.json());
@@ -118,41 +119,39 @@ const port = process.env.PORT || 3000;
 // ================= MODE DÉMO (0 €, sans certificat) =================
 // Simule le cœur du produit : une caisse enregistre un ticket digital,
 // la carte du client (ouverte sur son téléphone) se met à jour en direct.
-const brands = JSON.parse(fs.readFileSync(new URL('./brands.json', import.meta.url), 'utf8'));
-app.get('/api/brands', (req, res) => res.json(brands));
-const cards = new Map();
+const brands = JSON.parse(fs.readFileSync(new URL("./brands.json", import.meta.url), "utf8"));
+app.get("/api/brands", (req, res) => res.json(brands));
+const store = openStore(process.env.STORE_PATH || "./data/passerelle.sqlite");
+seedIfEmpty(store, brands);
 const streams = new Map(); // num -> Set<res>
-const seed = (num, nom, ens, col) => {
-  const b = brands[0];
-  cards.set(num, {
-    num, nom, ens, col, pts: 1240,
-    reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id,
-    location: b.location ?? null,
-    receipts: [
-      { date: "12/10", magasin: "Courses", montant: 42.8 },
-      { date: "08/10", magasin: "Boulangerie", montant: 6.4 },
-    ],
-  });
-};
-seed("3012345678905", "Camille Dupont", "Super Marché Nord", "#2aa6a0");
+
+function lanIps() {
+  try {
+    return Object.values(os.networkInterfaces()).flat()
+      .filter((i) => i && i.family === "IPv4" && !i.internal)
+      .map((i) => i.address);
+  } catch {
+    return [];
+  }
+}
 
 app.get("/api/info", (req, res) => {
-  const ips = Object.values(os.networkInterfaces()).flat()
-    .filter((i) => i && i.family === "IPv4" && !i.internal).map((i) => i.address);
-  res.json({ port, ips });
+  res.json({ port, ips: lanIps() });
 });
 app.post("/api/cards", (req, res) => {
   try {
     const d = clean(req.body);
-    const old = cards.get(d.num);
     const b = brandById(d.brand);
-    cards.set(d.num, { ...(old ?? { receipts: [] }), num: d.num, nom: d.nom, ens: d.ens, col: d.col, pts: d.pts,
-      reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id, location: b.location ?? null });
-    res.json(view(cards.get(d.num)));
+    const saved = store.saveCard({
+      num: d.num, nom: d.nom, ens: d.ens, col: d.col, pts: d.pts,
+      reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id,
+      location: b.location ?? null,
+    });
+    res.json(view(saved));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get("/api/cards/:num", (req, res) => {
-  const c = cards.get(req.params.num);
+  const c = store.getCard(req.params.num);
   c ? res.json(view(c)) : res.status(404).json({ error: "Carte inconnue. Créez-la depuis le studio." });
 });
 app.get("/api/cards/:num/events", (req, res) => {
@@ -163,26 +162,23 @@ app.get("/api/cards/:num/events", (req, res) => {
   req.on("close", () => set.delete(res));
 });
 app.post("/api/cards/:num/receipt", (req, res) => {
-  const c = cards.get(req.params.num);
-  if (!c) return res.status(404).json({ error: "Carte inconnue." });
+  if (!store.getCard(req.params.num)) return res.status(404).json({ error: "Carte inconnue." });
   const montant = Math.round((parseFloat(req.body?.montant) || 0) * 100) / 100;
   if (montant <= 0 || montant > 5000) return res.status(400).json({ error: "Montant invalide." });
   const receipt = {
     date: new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }),
-    magasin: String(req.body?.magasin ?? "Magasin").slice(0, 30), montant };
-  c.receipts.unshift(receipt); c.receipts = c.receipts.slice(0, 20);
-  const gain = Math.floor(montant * (c.ptsPerEuro ?? 1));
-  c.pts += gain;
-  const shown = view(c);
-  const msg = `data: ${JSON.stringify({ card: shown, receipt, gain })}\n\n`;
-  (streams.get(c.num) ?? []).forEach((r) => r.write(msg));
+    magasin: String(req.body?.magasin ?? "Magasin").slice(0, 30),
+    montant,
+  };
+  const result = store.addReceipt(req.params.num, receipt);
+  const shown = view(result.card);
+  const msg = `data: ${JSON.stringify({ card: shown, receipt, gain: result.gain })}\n\n`;
+  (streams.get(req.params.num) ?? []).forEach((r) => r.write(msg));
   res.json({ ok: true, card: shown });
 });
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`\nPasserelle     : http://localhost:${port}`);
-  Object.values(os.networkInterfaces()).flat()
-    .filter((i) => i && i.family === "IPv4" && !i.internal)
-    .forEach((i) => console.log(`Sur ton iPhone : http://${i.address}:${port}/carte.html?n=3012345678905`));
+  lanIps().forEach((ip) => console.log(`Sur ton iPhone : http://${ip}:${port}/carte.html?n=3012345678905`));
   console.log(`Caisse (démo)  : http://localhost:${port}/caisse.html\n`);
 });

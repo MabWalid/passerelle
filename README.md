@@ -7,12 +7,14 @@ Génère une carte de fidélité (pass) pour **Apple Wallet** et **Google Wallet
 Le dos du pass affiche les derniers tickets de caisse digitaux ; un compteur montre le papier économisé.
 
 ## Lancer en local
+Node.js 22.5 ou plus (SQLite est intégré au runtime).
 ```bash
 npm install
 cp .env.example .env     # puis remplir les valeurs
 npm run dev              # http://localhost:3000
 ```
 L'aperçu et l'export JSON fonctionnent sans configuration.
+Les cartes et les tickets sont enregistrés dans `data/passerelle.sqlite` (ignoré par git) et survivent à un redémarrage. Supprimer ce fichier revient à la carte de démonstration.
 
 ## Démo live (0 €, sans certificat)
 1. `npm run dev` : le terminal affiche l'adresse à ouvrir sur l'iPhone (même Wi-Fi).
