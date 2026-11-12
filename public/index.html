@@ -79,6 +79,8 @@ a{color:var(--teal)}
   </div>
   <label for="rel">Magasin proche (notification)</label>
   <input id="rel" value="Lille – 149 av. de Bretagne">
+  <label for="key">Clé caisse</label>
+  <input id="key" type="password" autocomplete="off" placeholder="Vide tant que PASSE_API_KEY n'est pas défini">
 </section>
 
 <section aria-label="Aperçu">
@@ -179,14 +181,20 @@ set("tA","tG",()=>mode="A");set("tG","tA",()=>mode="G");set("jA","jG",()=>jmode=
 $("fl").onclick=()=>{flip=!flip;render()};
 $("dl").onclick=()=>{const b=new Blob([$("json").textContent],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=jmode=="A"?"pass.json":"google-wallet-object.json";a.click()};
 async function appel(url){const d=data();if(!check(d))return null;
- const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});
- if(!r.ok){const e=await r.json().catch(()=>({}));$("msg").className="ko";$("msg").textContent=e.error||"Erreur serveur";return null}return r}
+ const headers={"Content-Type":"application/json"};
+ const key=$("key").value.trim();
+ if(key) headers.Authorization="Bearer "+key;
+ const r=await fetch(url,{method:"POST",headers,body:JSON.stringify(d)});
+ if(!r.ok){const e=await r.json().catch(()=>({}));$("msg").className="ko";$("msg").textContent=e.error||"Erreur serveur";return null}
+ if(key) sessionStorage.setItem("passe-api-key",key);
+ return r}
 $("ba").onclick=async()=>{const r=await appel("/api/apple");if(!r)return;const a=document.createElement("a");a.href=URL.createObjectURL(await r.blob());a.download=data().num+".pkpass";a.click()};
 $("bg").onclick=async()=>{const r=await appel("/api/google");if(!r)return;location.href=(await r.json()).url};
 $("bd").onclick=async()=>{const r=await appel("/api/cards");if(!r)return;const d=data(),i=await (await fetch("/api/info")).json();
  const ip=i.ips[0]||"IP-DU-PC",q="carte.html?n="+d.num;
  $("demo").innerHTML=`Carte créée. Sur l'iPhone (même Wi-Fi) : <b>http://${ip}:${i.port}/${q}</b><br>Sur ce PC, la caisse : <a href="/caisse.html" target="_blank">/caisse.html</a> &nbsp;|&nbsp; aperçu : <a href="/${q}" target="_blank">/${q}</a>`};
 fetch("/api/brands").then(r=>r.json()).then(bs=>{window.BR=bs;$("br").innerHTML=bs.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");return loadCard()}).catch(()=>{$("br").innerHTML='<option value="">Démo</option>';render()});
+if(sessionStorage.getItem("passe-api-key"))$("key").value=sessionStorage.getItem("passe-api-key");
 $("br").onchange=()=>{const b=(window.BR||[]).find(x=>x.id==$("br").value);if(b){$("ens").value=b.name;$("col").value=b.color;if(b.location?.relevantText)$("rel").value=b.location.relevantText;render()}};
 render();
 </script>

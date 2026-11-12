@@ -15,6 +15,7 @@ npm run dev              # http://localhost:3000
 ```
 L'aperçu et l'export JSON fonctionnent sans configuration.
 Les cartes et les tickets sont enregistrés dans `data/passerelle.sqlite` (ignoré par git) et survivent à un redémarrage. Supprimer ce fichier revient à la carte de démonstration.
+Tant que `PASSE_API_KEY` est vide, la caisse est ouverte : pratique sur un Wi-Fi de confiance. Avec une valeur, le studio et la caisse doivent envoyer `Authorization: Bearer`. La carte sur le téléphone continue de se lire sans cette clé.
 
 ## Démo live (0 €, sans certificat)
 1. `npm run dev` : le terminal affiche l'adresse à ouvrir sur l'iPhone (même Wi-Fi).

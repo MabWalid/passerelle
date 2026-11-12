@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { rewardView } from "./lib/reward.js";
 import { openStore, seedIfEmpty } from "./lib/store.js";
+import { cashierAuth } from "./lib/auth.js";
 
 const app = express();
 app.use(express.json());
@@ -138,7 +139,7 @@ function lanIps() {
 app.get("/api/info", (req, res) => {
   res.json({ port, ips: lanIps() });
 });
-app.post("/api/cards", (req, res) => {
+app.post("/api/cards", cashierAuth, (req, res) => {
   try {
     const d = clean(req.body);
     const b = brandById(d.brand);
@@ -161,7 +162,7 @@ app.get("/api/cards/:num/events", (req, res) => {
   set.add(res); streams.set(req.params.num, set);
   req.on("close", () => set.delete(res));
 });
-app.post("/api/cards/:num/receipt", (req, res) => {
+app.post("/api/cards/:num/receipt", cashierAuth, (req, res) => {
   if (!store.getCard(req.params.num)) return res.status(404).json({ error: "Carte inconnue." });
   const montant = Math.round((parseFloat(req.body?.montant) || 0) * 100) / 100;
   if (montant <= 0 || montant > 5000) return res.status(400).json({ error: "Montant invalide." });
@@ -178,6 +179,9 @@ app.post("/api/cards/:num/receipt", (req, res) => {
 });
 
 app.listen(port, "0.0.0.0", () => {
+  if (!process.env.PASSE_API_KEY?.trim()) {
+    console.warn("PASSE_API_KEY absente : créer une carte ou passer en caisse n'exige aucune clé.");
+  }
   console.log(`\nPasserelle     : http://localhost:${port}`);
   lanIps().forEach((ip) => console.log(`Sur ton iPhone : http://${ip}:${port}/carte.html?n=3012345678905`));
   console.log(`Caisse (démo)  : http://localhost:${port}/caisse.html\n`);
