@@ -53,12 +53,15 @@ const $=i=>document.getElementById(i),card=$("card");let c,flip=false;
 const e=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 function ring(g){const pct=Math.min(1,g/100),C=2*Math.PI*24;
  return `<svg width="62" height="62" viewBox="0 0 62 62" role="img" aria-label="${g} g de papier évité"><circle cx="31" cy="31" r="24" fill="none" stroke="#ddd" stroke-width="6"/><circle cx="31" cy="31" r="24" fill="none" stroke="#2aa6a0" stroke-width="6" stroke-linecap="round" stroke-dasharray="${C*pct} ${C}" transform="rotate(-90 31 31)"/><text x="31" y="35" text-anchor="middle" font-size="11" font-weight="700" fill="#222">${g} g</text></svg>`}
-function draw(pop){const r=c.reward||{at:1000,label:"Récompense"},cur=c.pts%r.at,rem=r.at-cur,g=c.receipts.length*(c.ecoG||2);
+function draw(pop){const r=c.reward||{at:1000,label:"Récompense"};
+ const into=c.pointsIntoReward??(c.pts%r.at),rem=c.pointsToNext??(r.at-into||r.at),earned=c.rewardsEarned??Math.floor(c.pts/r.at);
+ const rewardLine=earned?`${earned} récompense${earned>1?"s":""} atteinte${earned>1?"s":""} · encore ${rem} pts : ${e(r.label)}`:`Encore ${rem} pts : ${e(r.label)}`;
+ const g=c.receipts.length*(c.ecoG||2);
  card.style.background=`linear-gradient(145deg,${c.col},${c.col}cc)`;card.classList.toggle("flip",flip);
  card.innerHTML=`<div class="f"><div class="top"><span>${e(c.ens)}</span><span class="sm">Wallet</span></div>
  <div class="big${pop&&!flip?" pop":""}">${c.pts.toLocaleString("fr-FR")}</div><div class="sm">points de fidélité</div>
- <div class="pg" role="progressbar" aria-valuenow="${cur}" aria-valuemax="${r.at}"><i style="width:${cur/r.at*100}%"></i></div>
- <div class="sm">Encore ${rem} pts : ${e(r.label)}</div>
+ <div class="pg" role="progressbar" aria-valuenow="${into}" aria-valuemax="${r.at}"><i style="width:${into/r.at*100}%"></i></div>
+ <div class="sm">${rewardLine}</div>
  <div class="fl"><div><div class="sm">Titulaire</div>${e(c.nom)}</div><div style="text-align:right"><div class="sm">Tickets digitaux</div>${c.receipts.length}</div></div>
  <div class="bc">${code128(c.num)}${c.num}</div></div>
  <div class="b"><h3>DERNIERS TICKETS</h3>${c.receipts.map(x=>`<div class="rc"><span>${e(x.date)} ${e(x.magasin)}</span><span>${x.montant.toFixed(2)} €</span></div>`).join("")}
@@ -76,7 +79,7 @@ const t=$("tilt");function mv(ev){const r=t.getBoundingClientRect(),x=(ev.client
 card.addEventListener("pointermove",mv);card.addEventListener("pointerleave",()=>{t.style.setProperty("--rx","0deg");t.style.setProperty("--ry","0deg")});
 fetch("/api/cards/"+n).then(r=>r.json()).then(d=>{if(d.error){$("h").textContent=d.error;return}c=d;draw()});
 const es=new EventSource("/api/cards/"+n+"/events");
-es.onmessage=ev=>{const m=JSON.parse(ev.data),before=Math.floor((c.pts)/(c.reward?.at||1e9));c=m.card;const after=Math.floor(c.pts/(c.reward?.at||1e9));
+es.onmessage=ev=>{const m=JSON.parse(ev.data),before=c.rewardsEarned??0;c=m.card;const after=c.rewardsEarned??0;
  draw(true);card.classList.remove("glow");void card.offsetWidth;card.classList.add("glow");navigator.vibrate&&navigator.vibrate([120,60,120]);
- toast(after>before?`🎉 Récompense débloquée : ${c.reward.label}`:`Nouveau ticket : ${m.receipt.montant.toFixed(2)} € chez ${m.receipt.magasin} (+${m.gain} pts)`)};
+ toast(after>before?`Récompense débloquée : ${c.reward.label}`:`Nouveau ticket : ${m.receipt.montant.toFixed(2)} € chez ${m.receipt.magasin} (+${m.gain} pts)`)};
 </script></body></html>

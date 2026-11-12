@@ -68,14 +68,14 @@ a{color:var(--teal)}
   <input id="num" inputmode="numeric" value="3012345678905" autocomplete="off">
   <div id="msg"></div>
   <div class="row">
-    <div><label for="nom">Titulaire</label><input id="nom" value="MOUL CHFENJA"></div>
+    <div><label for="nom">Titulaire</label><input id="nom" value="Camille Dupont"></div>
     <div><label for="pts">Points</label><input id="pts" type="number" min="0" value="1240"></div>
   </div>
   <label for="ens">Enseigne</label>
   <input id="ens" value="Super Marché Nord">
   <div class="row">
     <div><label for="col">Couleur</label><input id="col" type="color" value="#2aa6a0"></div>
-    <div><label for="tk">Tickets digitaux</label><input id="tk" type="number" min="0" value="37"></div>
+    <div><label for="tk">Tickets digitaux</label><input id="tk" type="number" min="0" value="2"></div>
   </div>
   <label for="rel">Magasin proche (notification)</label>
   <input id="rel" value="Lille – 149 av. de Bretagne">
@@ -90,8 +90,9 @@ a{color:var(--teal)}
   <div class="stage">
     <div class="phone"><div class="card" id="card"></div></div>
     <div class="eco" style="flex:1 1 220px;flex-direction:column;margin-top:0">
-      <div><b id="e1">37</b>tickets papier évités</div>
-      <div><b id="e2">74 g</b>de papier économisé (estimation : 2 g par ticket)</div>
+      <div><b id="e1">2</b>tickets papier évités</div>
+      <div><b id="e2">4 g</b>de papier économisé (estimation : 2 g par ticket)</div>
+      <div><b id="e3">8</b>récompenses déjà atteintes</div>
     </div>
   </div>
 
@@ -120,15 +121,19 @@ function code128(s){const v=[104];[...s].forEach((c,i)=>v.push(c.charCodeAt(0)-3
 function luhn(s){let t=0,d=false;for(let i=s.length-1;i>=0;i--){let n=+s[i];if(d){n*=2;if(n>9)n-=9}t+=n;d=!d}return t%10==0}
 function ean13(s){if(s.length!=13)return false;let t=0;for(let i=0;i<12;i++)t+=+s[i]*(i%2?3:1);return (10-t%10)%10==+s[12]}
 const $=id=>document.getElementById(id);
-let mode="A",jmode="A",flip=false;
-const tok=[...crypto.getRandomValues(new Uint8Array(12))].map(b=>b.toString(16).padStart(2,"0")).join("");
+let mode="A",jmode="A",flip=false,live=null,fetchSeq=0;
 function data(){return{brand:$("br").value,num:$("num").value.replace(/\s/g,""),nom:$("nom").value,pts:+$("pts").value||0,ens:$("ens").value,col:$("col").value,tk:+$("tk").value||0,rel:$("rel").value}}
+function rewardView(pts,at){at=at>0?Math.floor(at):1;pts=Math.max(0,Math.floor(pts)||0);const into=pts%at;return{rewardsEarned:Math.floor(pts/at),pointsIntoReward:into,pointsToNext:into===0?at:at-into}}
+function currentBrand(){return (window.BR||[]).find(x=>x.id===$("br").value)}
+function threshold(){return currentBrand()?.reward?.at||150}
+function shownReceipts(d){return live&&live.num===d.num?live.receipts:[]}
 function check(d){const m=$("msg");
  if(!/^\d{8,19}$/.test(d.num)){m.className="ko";m.textContent="Entrez entre 8 et 19 chiffres, sans lettres.";return false}
  const t=d.num.length==13?(ean13(d.num)?"EAN-13 valide":"EAN-13 : clé de contrôle incorrecte"):luhn(d.num)?"clé Luhn valide":"format libre accepté";
  m.className="ok";m.textContent="Numéro accepté – "+t;return true}
-function rcpts(d){const r=[["12/10","Courses",42.8],["08/10","Boulangerie",6.4],["03/10","Courses",67.15]];
- return r.map(x=>`<div class="rc"><span>${x[0]} ${x[1]}</span><span>${x[2].toFixed(2)} €</span></div>`).join("")}
+function rcpts(d){const list=shownReceipts(d);
+ if(!list.length)return `<div class="rc"><span>Aucun ticket enregistré</span><span></span></div>`;
+ return list.map(x=>`<div class="rc"><span>${esc(x.date)} ${esc(x.magasin)}</span><span>${Number(x.montant).toFixed(2)} €</span></div>`).join("")}
 function render(){const d=data();const ok=check(d);const c=$("card");
  c.className="card"+(mode=="G"?" g":"")+(flip?" flip":"");c.style.background=d.col;
  const bc=ok?code128(d.num):"";
@@ -137,24 +142,38 @@ function render(){const d=data();const ok=check(d);const c=$("card");
  <div class="fields"><div><div class="sm">Titulaire</div>${esc(d.nom)}</div><div style="text-align:right"><div class="sm">Tickets digitaux</div>${d.tk}</div></div>
  <div class="bc">${bc}${d.num}</div></div>
  <div class="back"><h3>DERNIERS TICKETS – ${esc(d.ens)}</h3>${rcpts(d)}<p style="margin-top:14px">Passez en magasin : « ${esc(d.rel)} » – la carte s'affiche à l'écran de verrouillage.</p></div>`;
- $("e1").textContent=d.tk;$("e2").textContent=(d.tk*2)+" g";
+ const tickets=live&&live.num===d.num?shownReceipts(d).length:d.tk;
+ const rv=rewardView(d.pts,threshold());
+ $("e1").textContent=tickets;$("e2").textContent=(tickets*(currentBrand()?.ecoG||2))+" g";$("e3").textContent=rv.rewardsEarned;
  $("json").textContent=JSON.stringify(jmode=="A"?apple(d):google(d),null,2)}
 function esc(s){return s.replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 const hex2rgb=h=>`rgb(${[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(", ")})`;
-function apple(d){return{formatVersion:1,passTypeIdentifier:"pass.com.exemple.fidelite",teamIdentifier:"TEAMID0000",serialNumber:d.num,organizationName:d.ens,description:"Carte de fidélité "+d.ens,
+function ticketLines(d){return shownReceipts(d).map(x=>`${x.date} ${x.magasin} ${Number(x.montant).toFixed(2).replace(".",",")} €`)}
+function apple(d){const loc=currentBrand()?.location;const lines=ticketLines(d);const rv=rewardView(d.pts,threshold());
+ return{formatVersion:1,passTypeIdentifier:"pass.com.exemple.fidelite",teamIdentifier:"TEAMID0000",serialNumber:d.num,organizationName:d.ens,description:"Carte de fidélité "+d.ens,
  backgroundColor:hex2rgb(d.col),foregroundColor:"rgb(255, 255, 255)",labelColor:"rgb(255, 255, 255)",
  barcodes:[{format:"PKBarcodeFormatCode128",message:d.num,messageEncoding:"iso-8859-1",altText:d.num}],
  storeCard:{primaryFields:[{key:"points",label:"Points",value:d.pts}],secondaryFields:[{key:"nom",label:"Titulaire",value:d.nom},{key:"tickets",label:"Tickets digitaux",value:d.tk}],
- backFields:[{key:"tickets_dos",label:"Derniers tickets",value:"12/10 Courses 42,80 € – 08/10 Boulangerie 6,40 € – 03/10 Courses 67,15 €",changeMessage:"Nouveau ticket : %@"}]},
- locations:[{latitude:50.6326,longitude:3.0199,relevantText:"Votre carte "+d.ens+" est prête – "+d.rel}],
- webServiceURL:"https://api.exemple.fr/passes/",authenticationToken:tok}}
-function google(d){return{id:"ISSUER_ID."+d.num,classId:"ISSUER_ID.fidelite_"+d.ens.toLowerCase().replace(/\W+/g,"_"),state:"ACTIVE",
+ backFields:[{key:"last",label:"Dernier ticket",value:lines[0]||"Aucun ticket enregistré.",changeMessage:"Nouveau ticket : %@"},
+  {key:"rewards",label:"Récompenses atteintes",value:rv.rewardsEarned},
+  {key:"tickets_dos",label:"Derniers tickets",value:lines.join("\n")||"Aucun ticket enregistré."}]},
+ ...(loc?{locations:[{latitude:loc.latitude,longitude:loc.longitude,relevantText:loc.relevantText||d.rel}]}:{})}}
+function google(d){const loc=currentBrand()?.location;const rv=rewardView(d.pts,threshold());
+ return{id:"ISSUER_ID."+d.num,classId:"ISSUER_ID.fidelite_"+d.ens.toLowerCase().replace(/\W+/g,"_"),state:"ACTIVE",
  accountId:d.num,accountName:d.nom,loyaltyPoints:{label:"Points",balance:{int:d.pts}},
  barcode:{type:"CODE_128",value:d.num,alternateText:d.num},hexBackgroundColor:d.col,
- textModulesData:[{id:"tickets",header:"Tickets digitaux",body:String(d.tk)}],
- linksModuleData:{uris:[{uri:"https://exemple.fr/tickets/"+d.num,description:"Voir mes tickets de caisse"}]},
- locations:[{latitude:50.6326,longitude:3.0199}]}}
-["num","nom","pts","ens","col","tk","rel"].forEach(i=>$(i).addEventListener("input",render));
+ textModulesData:[{id:"tickets",header:"Tickets digitaux",body:String(d.tk)},{id:"rewards",header:"Récompenses atteintes",body:String(rv.rewardsEarned)}],
+ ...(loc?{locations:[{latitude:loc.latitude,longitude:loc.longitude}]}:{})}}
+["nom","pts","ens","col","tk","rel"].forEach(i=>$(i).addEventListener("input",render));
+let numTimer;
+$("num").addEventListener("input",()=>{render();clearTimeout(numTimer);numTimer=setTimeout(loadCard,250)});
+async function loadCard(){const num=$("num").value.replace(/\s/g,"");const seq=++fetchSeq;
+ if(!/^\d{8,19}$/.test(num)){live=null;render();return}
+ const r=await fetch("/api/cards/"+num);if(seq!==fetchSeq)return;
+ if(!r.ok){live=null;render();return}
+ const c=await r.json();if(seq!==fetchSeq)return;live=c;
+ $("nom").value=c.nom;$("pts").value=c.pts;$("ens").value=c.ens;$("col").value=c.col;$("tk").value=c.receipts.length;
+ if(c.brand)$("br").value=c.brand;if(c.location?.relevantText)$("rel").value=c.location.relevantText;render()}
 const set=(a,b,k)=>{$(a).onclick=()=>{k();$(a).setAttribute("aria-pressed",true);$(b).setAttribute("aria-pressed",false);render()}};
 set("tA","tG",()=>mode="A");set("tG","tA",()=>mode="G");set("jA","jG",()=>jmode="A");set("jG","jA",()=>jmode="G");
 $("fl").onclick=()=>{flip=!flip;render()};
@@ -167,8 +186,8 @@ $("bg").onclick=async()=>{const r=await appel("/api/google");if(!r)return;locati
 $("bd").onclick=async()=>{const r=await appel("/api/cards");if(!r)return;const d=data(),i=await (await fetch("/api/info")).json();
  const ip=i.ips[0]||"IP-DU-PC",q="carte.html?n="+d.num;
  $("demo").innerHTML=`Carte créée. Sur l'iPhone (même Wi-Fi) : <b>http://${ip}:${i.port}/${q}</b><br>Sur ce PC, la caisse : <a href="/caisse.html" target="_blank">/caisse.html</a> &nbsp;|&nbsp; aperçu : <a href="/${q}" target="_blank">/${q}</a>`};
-fetch("/api/brands").then(r=>r.json()).then(bs=>{window.BR=bs;$("br").innerHTML=bs.map(b=>`<option value="${b.id}">${b.name}</option>`).join("");render()}).catch(()=>{$("br").innerHTML='<option value="">Démo</option>'});
-$("br").onchange=()=>{const b=(window.BR||[]).find(x=>x.id==$("br").value);if(b){$("ens").value=b.name;$("col").value=b.color;render()}};
+fetch("/api/brands").then(r=>r.json()).then(bs=>{window.BR=bs;$("br").innerHTML=bs.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");return loadCard()}).catch(()=>{$("br").innerHTML='<option value="">Démo</option>';render()});
+$("br").onchange=()=>{const b=(window.BR||[]).find(x=>x.id==$("br").value);if(b){$("ens").value=b.name;$("col").value=b.color;if(b.location?.relevantText)$("rel").value=b.location.relevantText;render()}};
 render();
 </script>
 </body>

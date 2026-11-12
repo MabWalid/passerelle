@@ -3,7 +3,11 @@
   "version": "0.2.0",
   "description": "Passerelle : cartes digitales Apple Wallet et Google Wallet, white-label, avec tickets de caisse digitaux",
   "type": "module",
-  "scripts": { "start": "node --env-file=.env server.js", "dev": "node --watch --env-file=.env server.js" },
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "dev": "node --watch --env-file=.env server.js",
+    "test": "node --test"
+  },
   "engines": { "node": ">=20.6" },
   "dependencies": { "express": "^4.19.2", "jsonwebtoken": "^9.0.2", "passkit-generator": "^3.2.0" }
 }

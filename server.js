@@ -1,6 +1,7 @@
 import express from "express";
 import fs from "node:fs";
 import os from "node:os";
+import { rewardView } from "./lib/reward.js";
 
 const app = express();
 app.use(express.json());
@@ -21,6 +22,11 @@ function clean(b = {}) {
   };
 }
 const rgb = (h) => `rgb(${[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(", ")})`;
+const brandById = (id) => brands.find((x) => x.id === id) ?? brands[0];
+function view(card) {
+  if (!card) return card;
+  return { ...card, ...rewardView(card.pts, card.reward?.at) };
+}
 
 // ---------- Apple Wallet : .pkpass signé ----------
 app.post("/api/apple", async (req, res) => {
@@ -116,10 +122,18 @@ const brands = JSON.parse(fs.readFileSync(new URL('./brands.json', import.meta.u
 app.get('/api/brands', (req, res) => res.json(brands));
 const cards = new Map();
 const streams = new Map(); // num -> Set<res>
-const seed = (num, nom, ens, col) =>
-  cards.set(num, { num, nom, ens, col, pts: 1240, reward: brands[0].reward, ptsPerEuro: 1, ecoG: 2, brand: brands[0].id, receipts: [
-    { date: "12/10", magasin: "Courses", montant: 42.8 },
-    { date: "08/10", magasin: "Boulangerie", montant: 6.4 }] });
+const seed = (num, nom, ens, col) => {
+  const b = brands[0];
+  cards.set(num, {
+    num, nom, ens, col, pts: 1240,
+    reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id,
+    location: b.location ?? null,
+    receipts: [
+      { date: "12/10", magasin: "Courses", montant: 42.8 },
+      { date: "08/10", magasin: "Boulangerie", montant: 6.4 },
+    ],
+  });
+};
 seed("3012345678905", "Camille Dupont", "Super Marché Nord", "#2aa6a0");
 
 app.get("/api/info", (req, res) => {
@@ -131,15 +145,15 @@ app.post("/api/cards", (req, res) => {
   try {
     const d = clean(req.body);
     const old = cards.get(d.num);
-    const b = brands.find((x) => x.id === d.brand) ?? brands[0];
+    const b = brandById(d.brand);
     cards.set(d.num, { ...(old ?? { receipts: [] }), num: d.num, nom: d.nom, ens: d.ens, col: d.col, pts: d.pts,
-      reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id });
-    res.json(cards.get(d.num));
+      reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id, location: b.location ?? null });
+    res.json(view(cards.get(d.num)));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get("/api/cards/:num", (req, res) => {
   const c = cards.get(req.params.num);
-  c ? res.json(c) : res.status(404).json({ error: "Carte inconnue. Créez-la depuis le studio." });
+  c ? res.json(view(c)) : res.status(404).json({ error: "Carte inconnue. Créez-la depuis le studio." });
 });
 app.get("/api/cards/:num/events", (req, res) => {
   res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -159,9 +173,10 @@ app.post("/api/cards/:num/receipt", (req, res) => {
   c.receipts.unshift(receipt); c.receipts = c.receipts.slice(0, 20);
   const gain = Math.floor(montant * (c.ptsPerEuro ?? 1));
   c.pts += gain;
-  const msg = `data: ${JSON.stringify({ card: c, receipt, gain })}\n\n`;
+  const shown = view(c);
+  const msg = `data: ${JSON.stringify({ card: shown, receipt, gain })}\n\n`;
   (streams.get(c.num) ?? []).forEach((r) => r.write(msg));
-  res.json({ ok: true, card: c });
+  res.json({ ok: true, card: shown });
 });
 
 app.listen(port, "0.0.0.0", () => {
