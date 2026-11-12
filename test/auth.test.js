@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cashierAuth } from "../lib/auth.js";
+import { applePassAuthorized, cashierAuth } from "../lib/auth.js";
 
 function run(headers, key) {
   const previous = process.env.PASSE_API_KEY;
@@ -23,6 +23,12 @@ function run(headers, key) {
 test("sans PASSE_API_KEY la caisse reste ouverte", () => {
   const result = run({}, undefined);
   assert.equal(result.passed, true);
+});
+
+test("Wallet est accepté seulement avec le jeton ApplePass", () => {
+  assert.equal(applePassAuthorized("ApplePass abcdefghijklmnop", "abcdefghijklmnop"), true);
+  assert.equal(applePassAuthorized("Bearer abcdefghijklmnop", "abcdefghijklmnop"), false);
+  assert.equal(applePassAuthorized("ApplePass autre-valeur-xxxx", "abcdefghijklmnop"), false);
 });
 
 test("une clé incorrecte est refusée, la bonne est acceptée", () => {

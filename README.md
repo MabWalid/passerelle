@@ -28,14 +28,16 @@ Cette démo reproduit le comportement des passes (mise à jour à distance, noti
 1. Compte Apple Developer → créer un **Pass Type ID** et un certificat.
 2. Exporter en PEM dans `certs/` : `signerCert.pem`, `signerKey.pem`, et le certificat Apple WWDR `wwdr.pem`.
 3. Renseigner `APPLE_PASS_TYPE_ID`, `APPLE_TEAM_ID` (et la passphrase) dans `.env`.
+4. Pour qu'un ticket mette à jour un pass déjà dans Cartes : exposer ce serveur en https et renseigner `APPLE_WEB_SERVICE_URL` (avec `/` à la fin). Le téléphone s'enregistre sur `/v1/…`. S'il y a un certificat, le serveur envoie la notification APNs.
 
 ## Google Wallet
 1. Google Cloud : activer l'API Google Wallet, créer un compte de service, télécharger sa clé JSON dans `certs/google-service-account.json`.
 2. Console Google Wallet : récupérer l'**Issuer ID** → `GOOGLE_ISSUER_ID` dans `.env`.
+3. `GOOGLE_LOGO_URL` : une image https publique du logo. Sans elle, le lien n'est pas généré.
 
 ## Feuille de route
 - [x] Étape 1 : aperçu + export JSON
 - [x] Étape 2 : serveur de signature (.pkpass) et lien Google Wallet
 - [x] Étape 3 (démo) : mise à jour en direct + notification simulée
-- [ ] Étape 3 (réel) : web service Apple + APNs, PATCH Google (nécessite les certificats)
+- [ ] Étape 3 (réel) : web service Apple en place (push APNs dès que le certificat est là), PATCH Google encore à faire
 - [ ] Étape 4 : tickets réels via l'API de l'enseigne cliente, tests, déploiement

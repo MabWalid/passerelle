@@ -1,9 +1,10 @@
 import express from "express";
 import fs from "node:fs";
 import os from "node:os";
-import { rewardView } from "./lib/reward.js";
+import { presentCard } from "./lib/reward.js";
 import { openStore, seedIfEmpty } from "./lib/store.js";
-import { cashierAuth } from "./lib/auth.js";
+import { applePassAuthorized, cashierAuth } from "./lib/auth.js";
+import { notifyPassUpdated } from "./lib/apns.js";
 
 const app = express();
 app.use(express.json());
@@ -25,47 +26,78 @@ function clean(b = {}) {
 }
 const rgb = (h) => `rgb(${[1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(", ")})`;
 const brandById = (id) => brands.find((x) => x.id === id) ?? brands[0];
-function view(card) {
-  if (!card) return card;
-  return { ...card, ...rewardView(card.pts, card.reward?.at) };
+
+function appleCerts() {
+  return {
+    wwdr: fs.readFileSync("certs/wwdr.pem"),
+    signerCert: fs.readFileSync("certs/signerCert.pem"),
+    signerKey: fs.readFileSync("certs/signerKey.pem"),
+    signerKeyPassphrase: process.env.APPLE_SIGNER_PASSPHRASE || undefined,
+  };
+}
+
+async function signedPass(card) {
+  const { PKPass } = await import("passkit-generator");
+  const web = process.env.APPLE_WEB_SERVICE_URL?.trim();
+  const props = {
+    passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID,
+    teamIdentifier: process.env.APPLE_TEAM_ID,
+    serialNumber: card.num,
+    organizationName: card.ens,
+    description: `Carte de fidélité ${card.ens}`,
+    backgroundColor: rgb(card.col),
+    foregroundColor: "rgb(255, 255, 255)",
+    labelColor: "rgb(255, 255, 255)",
+  };
+  if (web && card.authToken) {
+    props.webServiceURL = web.endsWith("/") ? web : `${web}/`;
+    props.authenticationToken = card.authToken;
+  }
+  const pass = await PKPass.from({ model: "./model/fidelite.pass", certificates: appleCerts() }, props);
+  pass.type = "storeCard";
+  pass.setBarcodes({ message: card.num, format: "PKBarcodeFormatCode128", altText: card.num });
+  const shown = presentCard(card);
+  const lines = card.receipts.map((r) => `${r.date} ${r.magasin} ${Number(r.montant).toFixed(2).replace(".", ",")} €`);
+  pass.primaryFields.push({ key: "points", label: "Points", value: card.pts });
+  pass.secondaryFields.push(
+    { key: "nom", label: "Titulaire", value: card.nom },
+    { key: "tickets", label: "Tickets digitaux", value: card.receipts.length }
+  );
+  pass.backFields.push(
+    { key: "last", label: "Dernier ticket", value: lines[0] || "Aucun ticket enregistré.", changeMessage: "Nouveau ticket : %@" },
+    { key: "rewards", label: "Récompenses atteintes", value: shown.rewardsEarned },
+    { key: "tickets_dos", label: "Derniers tickets", value: lines.join("\n") || "Aucun ticket enregistré." }
+  );
+  if (card.location?.latitude != null) {
+    pass.setLocations({
+      latitude: card.location.latitude,
+      longitude: card.location.longitude,
+      relevantText: card.location.relevantText || card.ens,
+    });
+  }
+  return pass;
+}
+
+function walletCard(req) {
+  const card = store.getCard(req.params.serialNumber);
+  if (!card || !applePassAuthorized(req.get("authorization"), card.authToken)) return null;
+  return card;
 }
 
 // ---------- Apple Wallet : .pkpass signé ----------
-app.post("/api/apple", async (req, res) => {
+app.post("/api/apple", cashierAuth, async (req, res) => {
   try {
-    const { PKPass } = await import("passkit-generator");
     const d = clean(req.body);
-    const certs = {
-      wwdr: fs.readFileSync("certs/wwdr.pem"),
-      signerCert: fs.readFileSync("certs/signerCert.pem"),
-      signerKey: fs.readFileSync("certs/signerKey.pem"),
-      signerKeyPassphrase: process.env.APPLE_SIGNER_PASSPHRASE || undefined,
-    };
-    const pass = await PKPass.from(
-      {
-        model: "./model/fidelite.pass",
-        certificates: certs,
-      },
-      {
-        passTypeIdentifier: process.env.APPLE_PASS_TYPE_ID,
-        teamIdentifier: process.env.APPLE_TEAM_ID,
-        serialNumber: d.num,
-        organizationName: d.ens,
-        description: `Carte de fidélité ${d.ens}`,
-        backgroundColor: rgb(d.col),
-        foregroundColor: "rgb(255, 255, 255)",
-        labelColor: "rgb(255, 255, 255)",
-      }
-    );
-    pass.type = "storeCard";
-    pass.setBarcodes({ message: d.num, format: "PKBarcodeFormatCode128", altText: d.num });
-    pass.primaryFields.push({ key: "points", label: "Points", value: d.pts });
-    pass.secondaryFields.push(
-      { key: "nom", label: "Titulaire", value: d.nom },
-      { key: "tickets", label: "Tickets digitaux", value: d.tk }
-    );
+    const b = brandById(d.brand);
+    const card = store.saveCard({
+      num: d.num, nom: d.nom, ens: d.ens, col: d.col, pts: d.pts,
+      reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id,
+      location: b.location ?? null,
+    });
+    const pass = await signedPass(card);
     res.type("application/vnd.apple.pkpass")
       .set("Content-Disposition", `attachment; filename="${d.num}.pkpass"`)
+      .set("Last-Modified", new Date(card.updatedAt).toUTCString())
       .send(pass.getAsBuffer());
   } catch (e) {
     const manque = e.code === "ENOENT";
@@ -83,8 +115,15 @@ app.post("/api/google", async (req, res) => {
     const jwt = (await import("jsonwebtoken")).default;
     const d = clean(req.body);
     const sa = JSON.parse(fs.readFileSync(process.env.GOOGLE_SA_FILE, "utf8"));
+    const b = brandById(d.brand);
+    const logo = b.logoUrl || process.env.GOOGLE_LOGO_URL || "";
+    if (!/^https:\/\//.test(logo)) {
+      return res.status(400).json({ error: "Logo Google manquant : définissez GOOGLE_LOGO_URL (URL https publique)." });
+    }
     const issuer = process.env.GOOGLE_ISSUER_ID;
     const classId = `${issuer}.fidelite_${d.ens.toLowerCase().replace(/\W+/g, "_")}`;
+    const shown = presentCard({ pts: d.pts, reward: b.reward });
+    const stored = store.getCard(d.num);
     const claims = {
       iss: sa.client_email,
       aud: "google",
@@ -93,13 +132,16 @@ app.post("/api/google", async (req, res) => {
       payload: {
         loyaltyClasses: [{ id: classId, issuerName: d.ens, programName: `Carte ${d.ens}`,
           reviewStatus: "UNDER_REVIEW", hexBackgroundColor: d.col,
-          programLogo: { sourceUri: { uri: "https://exemple.fr/logo.png" } } }],
+          programLogo: { sourceUri: { uri: logo } } }],
         loyaltyObjects: [{
           id: `${issuer}.${d.num}`, classId, state: "ACTIVE",
           accountId: d.num, accountName: d.nom,
           loyaltyPoints: { label: "Points", balance: { int: d.pts } },
           barcode: { type: "CODE_128", value: d.num, alternateText: d.num },
-          textModulesData: [{ id: "tickets", header: "Tickets digitaux", body: String(d.tk) }],
+          textModulesData: [
+            { id: "tickets", header: "Tickets digitaux", body: String(stored ? stored.receipts.length : d.tk) },
+            { id: "rewards", header: "Récompenses atteintes", body: String(shown.rewardsEarned) },
+          ],
         }],
       },
     };
@@ -148,12 +190,12 @@ app.post("/api/cards", cashierAuth, (req, res) => {
       reward: b.reward, ptsPerEuro: b.ptsPerEuro, ecoG: b.ecoG, brand: b.id,
       location: b.location ?? null,
     });
-    res.json(view(saved));
+    res.json(presentCard(saved));
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.get("/api/cards/:num", (req, res) => {
   const c = store.getCard(req.params.num);
-  c ? res.json(view(c)) : res.status(404).json({ error: "Carte inconnue. Créez-la depuis le studio." });
+  c ? res.json(presentCard(c)) : res.status(404).json({ error: "Carte inconnue. Créez-la depuis le studio." });
 });
 app.get("/api/cards/:num/events", (req, res) => {
   res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -172,10 +214,69 @@ app.post("/api/cards/:num/receipt", cashierAuth, (req, res) => {
     montant,
   };
   const result = store.addReceipt(req.params.num, receipt);
-  const shown = view(result.card);
+  const shown = presentCard(result.card);
   const msg = `data: ${JSON.stringify({ card: shown, receipt, gain: result.gain })}\n\n`;
   (streams.get(req.params.num) ?? []).forEach((r) => r.write(msg));
+  notifyPassUpdated(store.pushTokens(req.params.num), process.env.APPLE_PASS_TYPE_ID).catch((error) => {
+    console.error("APNs :", error.message);
+  });
   res.json({ ok: true, card: shown });
+});
+
+// ---------- Web service Apple (mise à jour des passes déjà installés) ----------
+app.post("/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber", (req, res) => {
+  const card = walletCard(req);
+  if (!card) return res.sendStatus(401);
+  const pushToken = String(req.body?.pushToken || "").trim();
+  if (!pushToken) return res.sendStatus(400);
+  const created = store.registerDevice({
+    deviceId: req.params.deviceLibraryIdentifier,
+    pushToken,
+    passTypeId: req.params.passTypeIdentifier,
+    serial: req.params.serialNumber,
+  });
+  res.sendStatus(created ? 201 : 200);
+});
+app.delete("/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber", (req, res) => {
+  if (!walletCard(req)) return res.sendStatus(401);
+  store.unregisterDevice({
+    deviceId: req.params.deviceLibraryIdentifier,
+    passTypeId: req.params.passTypeIdentifier,
+    serial: req.params.serialNumber,
+  });
+  res.sendStatus(200);
+});
+app.get("/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier", (req, res) => {
+  const found = store.updatedSerials(
+    req.params.deviceLibraryIdentifier,
+    req.params.passTypeIdentifier,
+    req.query.passesUpdatedSince
+  );
+  if (!found) return res.sendStatus(204);
+  res.json(found);
+});
+app.get("/v1/passes/:passTypeIdentifier/:serialNumber", async (req, res) => {
+  const card = walletCard(req);
+  if (!card) return res.sendStatus(401);
+  const since = Date.parse(req.get("if-modified-since") || "");
+  const updated = Date.parse(card.updatedAt);
+  if (!Number.isNaN(since) && !Number.isNaN(updated) && updated <= since) return res.sendStatus(304);
+  try {
+    const pass = await signedPass(card);
+    res.type("application/vnd.apple.pkpass")
+      .set("Last-Modified", new Date(card.updatedAt).toUTCString())
+      .send(pass.getAsBuffer());
+  } catch (e) {
+    const manque = e.code === "ENOENT";
+    res.status(manque ? 501 : 400).json({
+      error: manque ? "Certificats Apple manquants dans ./certs (voir README)." : e.message,
+    });
+  }
+});
+app.post("/v1/log", (req, res) => {
+  const logs = Array.isArray(req.body?.logs) ? req.body.logs.slice(0, 20) : [];
+  for (const line of logs) console.log("passkit:", String(line).slice(0, 300));
+  res.sendStatus(200);
 });
 
 app.listen(port, "0.0.0.0", () => {

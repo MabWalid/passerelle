@@ -40,6 +40,36 @@ test("une base vide reçoit la carte de démo, un redémarrage la conserve", () 
   }
 });
 
+test("le jeton du pass reste stable et un appareil ne revoit que les cartes modifiées", async () => {
+  const { dir, store } = tempStore();
+  try {
+    seedIfEmpty(store, brands);
+    const first = store.getCard("3012345678905");
+    const again = store.saveCard({ ...first, nom: "Camille D." });
+    assert.equal(again.authToken, first.authToken);
+    assert.equal(again.nom, "Camille D.");
+    assert.equal(store.registerDevice({
+      deviceId: "device-1", pushToken: "push-1", passTypeId: "pass.demo", serial: "3012345678905",
+    }), true);
+    assert.equal(store.registerDevice({
+      deviceId: "device-1", pushToken: "push-2", passTypeId: "pass.demo", serial: "3012345678905",
+    }), false);
+    const all = store.updatedSerials("device-1", "pass.demo");
+    assert.deepEqual(all.serialNumbers, ["3012345678905"]);
+    assert.equal(store.updatedSerials("device-1", "pass.demo", again.updatedAt), null);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    store.addReceipt("3012345678905", { date: "12/11", magasin: "Caisse", montant: 2 });
+    const fresh = store.updatedSerials("device-1", "pass.demo", again.updatedAt);
+    assert.deepEqual(fresh.serialNumbers, ["3012345678905"]);
+    assert.deepEqual(store.pushTokens("3012345678905"), ["push-2"]);
+    store.unregisterDevice({ deviceId: "device-1", passTypeId: "pass.demo", serial: "3012345678905" });
+    assert.deepEqual(store.pushTokens("3012345678905"), []);
+  } finally {
+    store.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("un ticket crédite les points et ne garde que 20 reçus", () => {
   const { dir, store } = tempStore();
   try {
